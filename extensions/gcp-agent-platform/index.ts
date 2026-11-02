@@ -44,9 +44,22 @@ import {
   registerAnthropicVertexProvider,
   type AnthropicCacheTtl,
 } from "./anthropic.ts";
+import {
+  clearGoogleVertexClientCache,
+  DEFAULT_GEMINI_CACHE_TTL_SECONDS,
+  GEMINI_CACHE_MODELS,
+  getGoogleVertexModels,
+  registerGoogleVertexProvider,
+} from "./gemini.ts";
 import { registerVertexImagesProvider } from "./images.ts";
 
 export type { AnthropicCacheTtl } from "./anthropic.ts";
+export {
+  clearGoogleVertexClientCache,
+  GEMINI_CACHE_MODELS,
+  getGoogleVertexModels,
+  registerGoogleVertexProvider,
+} from "./gemini.ts";
 export type AuthMode = "adc" | "service-account" | "impersonation";
 
 export type VertexSetupConfig = {
@@ -69,11 +82,7 @@ export type ResolvedVertexConfig = {
   geminiCacheTtlSeconds: number;
 };
 
-export const GEMINI_CACHE_MODELS = new Set([
-  "gemini-3.5-flash-lite",
-  "gemini-3.8-flash",
-  "gemini-4-argon",
-]);
+
 
 const CONFIG_FILE = join(getAgentDir(), "gcp-agent-platform.json");
 const LEGACY_ANTHROPIC_CONFIG_FILE = join(
@@ -91,7 +100,7 @@ const DEFAULT_ADC_FILE = join(
   "application_default_credentials.json",
 );
 const DEFAULT_REGION = "eu";
-const DEFAULT_GEMINI_CACHE_TTL_SECONDS = 300;
+
 const EXTENSION_ID = "gcp-agent-platform";
 const SA_EMAIL_PATTERN =
   /^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$/i;
@@ -533,82 +542,6 @@ export function getVertexBaseUrl(region: string): string {
   return `https://${region}-aiplatform.googleapis.com`;
 }
 
-type GeminiVertexModel = Omit<Model<Api>, "provider" | "baseUrl"> & {
-  promptCache?: { short?: number; long?: number };
-};
-
-export function getGoogleVertexModels(
-  geminiCacheTtlSeconds: number = DEFAULT_GEMINI_CACHE_TTL_SECONDS,
-): GeminiVertexModel[] {
-  const ttl =
-    Number.isFinite(geminiCacheTtlSeconds) && geminiCacheTtlSeconds > 0
-      ? Math.floor(geminiCacheTtlSeconds)
-      : 0;
-  return getModels("google-vertex").map(
-    ({ provider: _provider, baseUrl: _baseUrl, ...model }) => ({
-      ...model,
-      promptCache:
-        GEMINI_CACHE_MODELS.has(model.id) && ttl > 0
-          ? { short: ttl, long: ttl }
-          : undefined,
-    }),
-  );
-}
-
-export function registerGoogleVertexProvider(
-  pi: ExtensionAPI,
-  project: string | undefined,
-  baseUrl: string,
-  geminiCacheTtlSeconds: number = DEFAULT_GEMINI_CACHE_TTL_SECONDS,
-  resolveCredentialsFile: () => string = () =>
-    resolveStrictCredentialsFile(currentConfig),
-): void {
-  if (!project) return;
-  const googleVertexApi = getApiProvider("google-vertex");
-  const models = getGoogleVertexModels(
-    geminiCacheTtlSeconds,
-  ) as unknown as ProviderModelConfig[];
-  if (models.length === 0) return;
-
-  // Keep `{location}` template on the model baseUrl so `@google/genai` computes
-  // the regional/multi-regional Vertex endpoint (`eu` -> `aiplatform.eu.rep.googleapis.com`)
-  // and prepends `v1/projects/<project>/locations/<location>/...` instead of
-  // switching to `ResourceScope.COLLECTION`.
-  const sdkTemplateBaseUrl = "https://{location}-aiplatform.googleapis.com";
-
-  pi.registerProvider("google-vertex", {
-    baseUrl: sdkTemplateBaseUrl,
-    apiKey: "$GOOGLE_CLOUD_PROJECT",
-    api: "google-vertex",
-    models,
-    ...(googleVertexApi
-      ? {
-          streamSimple: (
-            model: Model<Api>,
-            context,
-            options?: SimpleStreamOptions,
-          ) => {
-            const keyFilename = resolveCredentialsFile();
-            const patchedModel = {
-              ...model,
-              baseUrl: sdkTemplateBaseUrl,
-            };
-            return googleVertexApi.streamSimple(patchedModel, context, {
-              ...options,
-              // Pass `<authenticated>` so Pi's google-vertex adapter uses GoogleAuth
-              // with `keyFilename` instead of treating `$GOOGLE_CLOUD_PROJECT` as a Vertex API key.
-              apiKey: "<authenticated>",
-              env: {
-                ...options?.env,
-                GOOGLE_APPLICATION_CREDENTIALS: keyFilename,
-              },
-            });
-          },
-        }
-      : {}),
-  });
-}
-
 function registerAllVertexProviders(
   pi: ExtensionAPI,
   config: ResolvedVertexConfig,
@@ -618,6 +551,7 @@ function registerAllVertexProviders(
   registerGoogleVertexProvider(
     pi,
     config.project,
+    config.location,
     baseUrl,
     config.geminiCacheTtlSeconds,
     strictResolver,
