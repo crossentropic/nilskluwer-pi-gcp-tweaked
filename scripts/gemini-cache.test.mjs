@@ -4,6 +4,11 @@ import {
   getOrCreateGeminiVertexClient,
   getGoogleVertexModels,
   DEFAULT_GEMINI_CACHE_TTL_SECONDS,
+  convertMessages,
+  extractToolResultText,
+  isGemini3OrNewer,
+  mapThinkingLevel,
+  buildParams,
 } from "../extensions/gcp-agent-platform/gemini.ts";
 
 async function testClientMemoization() {
@@ -42,4 +47,129 @@ async function testClientMemoization() {
   console.log("gemini client memoization ok: instance reuse, profile isolation, header safety, and cache clearing verified");
 }
 
+function testMessageConversionAndThinkingConfig() {
+  // 1. Tool result formatting: matching toolCallId and merging parallel tool calls
+  const mockContext = {
+    messages: [
+      {
+        role: "user",
+        content: "Please check date and list files",
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "I should call date and ls",
+            thinkingSignature: "sig_think_123",
+          },
+          {
+            type: "toolCall",
+            id: "call_date_1",
+            name: "date",
+            arguments: {},
+          },
+          {
+            type: "toolCall",
+            id: "call_ls_2",
+            name: "ls",
+            arguments: { path: "." },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call_date_1",
+        toolName: "date",
+        content: [{ type: "text", text: "2026-11-04" }],
+        isError: false,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call_ls_2",
+        toolName: "ls",
+        content: [{ type: "text", text: "file1.txt\nfile2.txt" }],
+        isError: false,
+      },
+    ],
+  };
+
+  const converted = convertMessages(mockContext);
+  assert.strictEqual(converted.length, 3, "Parallel tool calls must result in 3 turns: user, model, user");
+
+  // Verify assistant turn preserves thinking with thought: true and thoughtSignature
+  const assistantTurn = converted[1];
+  assert.strictEqual(assistantTurn.role, "model");
+  assert.strictEqual(assistantTurn.parts[0].thought, true);
+  assert.strictEqual(assistantTurn.parts[0].thoughtSignature, "sig_think_123");
+  assert.strictEqual(assistantTurn.parts[1].functionCall.id, "call_date_1");
+  assert.strictEqual(assistantTurn.parts[2].functionCall.id, "call_ls_2");
+
+  // Verify tool result turn merged both function responses into a SINGLE user turn
+  const toolResponseTurn = converted[2];
+  assert.strictEqual(toolResponseTurn.role, "user");
+  assert.strictEqual(toolResponseTurn.parts.length, 2, "Consecutive tool responses must be merged into one turn");
+  assert.strictEqual(toolResponseTurn.parts[0].functionResponse.id, "call_date_1");
+  assert.strictEqual(toolResponseTurn.parts[0].functionResponse.response.result, "2026-11-04");
+  assert.strictEqual(toolResponseTurn.parts[1].functionResponse.id, "call_ls_2");
+  assert.strictEqual(toolResponseTurn.parts[1].functionResponse.response.result, "file1.txt\nfile2.txt");
+
+  // 2. Multimodal input handling
+  const multimodalContext = {
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is in this image?" },
+          { type: "image", mimeType: "image/png", data: "base64data==" },
+        ],
+      },
+    ],
+  };
+  const convertedMultimodal = convertMessages(multimodalContext);
+  assert.strictEqual(convertedMultimodal.length, 1);
+  assert.strictEqual(convertedMultimodal[0].parts.length, 2);
+  assert.strictEqual(convertedMultimodal[0].parts[0].text, "What is in this image?");
+  assert.deepStrictEqual(convertedMultimodal[0].parts[1].inlineData, {
+    mimeType: "image/png",
+    data: "base64data==",
+  });
+
+  // 3. Thinking level mapping for Gemini 3+ vs 2.5
+  assert.strictEqual(isGemini3OrNewer("gemini-3.8-flash"), true);
+  assert.strictEqual(isGemini3OrNewer("gemini-3.5-flash-lite"), true);
+  assert.strictEqual(isGemini3OrNewer("gemini-4-argon"), true);
+  assert.strictEqual(isGemini3OrNewer("gemini-2.5-pro"), false);
+  assert.strictEqual(isGemini3OrNewer("gemini-2.5-flash"), false);
+
+  assert.strictEqual(mapThinkingLevel("low"), "LOW");
+  assert.strictEqual(mapThinkingLevel("medium"), "MEDIUM");
+  assert.strictEqual(mapThinkingLevel("high"), "HIGH");
+
+  // 4. buildParams thinking config
+  const mockModelGemini3 = {
+    id: "gemini-3.8-flash",
+    provider: "google-vertex",
+    reasoning: true,
+  };
+  const paramsWithLevel = buildParams(mockModelGemini3, { messages: [] }, {
+    thinking: { enabled: true, level: "LOW" },
+  });
+  assert.deepStrictEqual(paramsWithLevel.config.thinkingConfig, {
+    includeThoughts: true,
+    thinkingLevel: "LOW",
+  });
+
+  const paramsDisabled = buildParams(mockModelGemini3, { messages: [] }, {
+    thinking: { enabled: false },
+  });
+  assert.deepStrictEqual(paramsDisabled.config.thinkingConfig, {
+    includeThoughts: false,
+    thinkingBudget: 0,
+  });
+
+  console.log("gemini protocol & thinking fixes ok: tool IDs, turn merging, image support, and thinking configs verified");
+}
+
 await testClientMemoization();
+testMessageConversionAndThinkingConfig();

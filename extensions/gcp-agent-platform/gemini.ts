@@ -24,6 +24,7 @@ import {
   getSystemMessageText,
   type Api,
   type AssistantMessage,
+  type ImageContent,
   type Model,
   type ProviderHeaders,
   type SimpleStreamOptions,
@@ -187,7 +188,20 @@ function convertTools(tools: Tool[]): any[] {
   ];
 }
 
-function convertMessages(context: TranscriptContext): any[] {
+export function extractToolResultText(
+  content: string | (TextContent | ImageContent)[],
+): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((part): part is TextContent => (part as any).type === "text")
+      .map((part) => (part as any).text)
+      .join("\n");
+  }
+  return "";
+}
+
+export function convertMessages(context: TranscriptContext): any[] {
   const contents: any[] = [];
   for (const msg of context.messages) {
     if (msg.role === "system") continue;
@@ -197,7 +211,16 @@ function convertMessages(context: TranscriptContext): any[] {
       } else if (Array.isArray(msg.content)) {
         const parts: any[] = [];
         for (const item of msg.content) {
-          if (item.type === "text") parts.push({ text: item.text });
+          if (item.type === "text" && item.text) {
+            parts.push({ text: item.text });
+          } else if (item.type === "image" && (item as any).data) {
+            parts.push({
+              inlineData: {
+                mimeType: (item as any).mimeType,
+                data: (item as any).data,
+              },
+            });
+          }
         }
         if (parts.length > 0) contents.push({ role: "user", parts });
       }
@@ -208,6 +231,12 @@ function convertMessages(context: TranscriptContext): any[] {
           parts.push({
             text: block.text,
             ...(block.textSignature ? { thoughtSignature: block.textSignature } : {}),
+          });
+        } else if (block.type === "thinking" && block.thinking) {
+          parts.push({
+            text: block.thinking,
+            thought: true,
+            ...(block.thinkingSignature ? { thoughtSignature: block.thinkingSignature } : {}),
           });
         } else if (block.type === "toolCall") {
           parts.push({
@@ -222,17 +251,30 @@ function convertMessages(context: TranscriptContext): any[] {
       }
       if (parts.length > 0) contents.push({ role: "model", parts });
     } else if (msg.role === "toolResult") {
-      contents.push({
-        role: "user",
-        parts: [
-          {
-            functionResponse: {
-              name: msg.toolName ?? "",
-              response: { result: msg.content },
-            },
+      const resultText = extractToolResultText(msg.content);
+      const functionResponsePart: any = {
+        functionResponse: {
+          name: msg.toolName ?? "",
+          ...(msg.toolCallId ? { id: msg.toolCallId } : {}),
+          response: {
+            result: resultText,
+            ...(msg.isError ? { error: true } : {}),
           },
-        ],
-      });
+        },
+      };
+
+      // Group consecutive tool responses into the same user turn
+      const lastContent = contents[contents.length - 1];
+      if (
+        lastContent &&
+        lastContent.role === "user" &&
+        Array.isArray(lastContent.parts) &&
+        lastContent.parts.some((p: any) => p.functionResponse)
+      ) {
+        lastContent.parts.push(functionResponsePart);
+      } else {
+        contents.push({ role: "user", parts: [functionResponsePart] });
+      }
     }
   }
   return contents;
@@ -267,7 +309,29 @@ function getGoogleBudget(
   return -1;
 }
 
-function buildParams(
+export function isGemini3OrNewer(modelId: string): boolean {
+  const match = modelId.toLowerCase().match(/^gemini(?:-live)?-(\d+)/);
+  if (!match) return false;
+  return Number.parseInt(match[1], 10) >= 3;
+}
+
+export function mapThinkingLevel(level: string): string {
+  switch (level.toLowerCase()) {
+    case "minimal":
+      return "MINIMAL";
+    case "low":
+      return "LOW";
+    case "medium":
+      return "MEDIUM";
+    case "high":
+    case "xhigh":
+      return "HIGH";
+    default:
+      return "MEDIUM";
+  }
+}
+
+export function buildParams(
   model: Model<Api>,
   context: TranscriptContext,
   options: GoogleVertexOptions = {},
@@ -313,7 +377,7 @@ function buildParams(
     }
     config.thinkingConfig = thinkingConfig;
   } else if (model.reasoning && options.thinking && !options.thinking.enabled) {
-    config.thinkingConfig = { thinkingBudget: 0 };
+    config.thinkingConfig = { includeThoughts: false, thinkingBudget: 0 };
   }
 
   if (options.signal) {
@@ -617,6 +681,16 @@ export function streamSimpleGeminiVertex(
     return streamGeminiVertex(model, context, clientPromise, {
       ...base,
       thinking: { enabled: false },
+    });
+  }
+
+  if (isGemini3OrNewer(model.id)) {
+    return streamGeminiVertex(model, context, clientPromise, {
+      ...base,
+      thinking: {
+        enabled: true,
+        level: mapThinkingLevel(clampedReasoning),
+      },
     });
   }
 
