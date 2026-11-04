@@ -711,7 +711,7 @@ export function streamSimpleGeminiVertex(
     });
   }
 
-  const budget = getGoogleBudget(model, clampedReasoning, options.thinkingBudgets);
+  const budget = getGoogleBudget(model, clampedReasoning, options?.thinkingBudgets);
 
   return streamGeminiVertex(model, context, clientPromise, {
     ...base,
