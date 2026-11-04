@@ -201,7 +201,8 @@ export function extractToolResultText(
   return "";
 }
 
-export function convertMessages(context: TranscriptContext): any[] {
+export function convertMessages(context: TranscriptContext, model?: Model<Api>): any[] {
+  const isGemini3 = model ? isGemini3OrNewer(model.id) : true;
   const contents: any[] = [];
   for (const msg of context.messages) {
     if (msg.role === "system") continue;
@@ -241,7 +242,7 @@ export function convertMessages(context: TranscriptContext): any[] {
         } else if (block.type === "toolCall") {
           parts.push({
             functionCall: {
-              id: block.id,
+              ...(isGemini3 && block.id ? { id: block.id } : {}),
               name: block.name,
               args: block.arguments ?? {},
             },
@@ -255,7 +256,7 @@ export function convertMessages(context: TranscriptContext): any[] {
       const functionResponsePart: any = {
         functionResponse: {
           name: msg.toolName ?? "",
-          ...(msg.toolCallId ? { id: msg.toolCallId } : {}),
+          ...(isGemini3 && msg.toolCallId ? { id: msg.toolCallId } : {}),
           response: {
             result: resultText,
             ...(msg.isError ? { error: true } : {}),
@@ -336,7 +337,7 @@ export function buildParams(
   context: TranscriptContext,
   options: GoogleVertexOptions = {},
 ): GenerateContentParameters {
-  const contents = convertMessages(context);
+  const contents = convertMessages(context, model);
   const initialSystemMessage = getInitialSystemMessage(context.messages);
   const currentTools = getCurrentTools(context.messages);
 
@@ -370,14 +371,20 @@ export function buildParams(
 
   if (options.thinking?.enabled && model.reasoning) {
     const thinkingConfig: ThinkingConfig = { includeThoughts: true };
-    if (options.thinking.level !== undefined) {
-      thinkingConfig.thinkingLevel = options.thinking.level as any;
+    if (isGemini3OrNewer(model.id)) {
+      if (options.thinking.level !== undefined) {
+        thinkingConfig.thinkingLevel = options.thinking.level as any;
+      }
     } else if (options.thinking.budgetTokens !== undefined) {
       thinkingConfig.thinkingBudget = options.thinking.budgetTokens;
     }
     config.thinkingConfig = thinkingConfig;
   } else if (model.reasoning && options.thinking && !options.thinking.enabled) {
-    config.thinkingConfig = { includeThoughts: false, thinkingBudget: 0 };
+    if (isGemini3OrNewer(model.id)) {
+      config.thinkingConfig = { includeThoughts: false };
+    } else {
+      config.thinkingConfig = { includeThoughts: false, thinkingBudget: 0 };
+    }
   }
 
   if (options.signal) {
@@ -669,14 +676,15 @@ export function streamSimpleGeminiVertex(
     toolChoice: options?.toolChoice,
   };
 
-  if (!options?.reasoning) {
+  const requestedReasoning = options?.reasoning ?? (model.reasoning ? "off" : undefined);
+  if (!requestedReasoning) {
     return streamGeminiVertex(model, context, clientPromise, {
       ...base,
       thinking: { enabled: false },
     });
   }
 
-  const clampedReasoning = clampThinkingLevel(model, options.reasoning);
+  const clampedReasoning = clampThinkingLevel(model, requestedReasoning);
   if (clampedReasoning === "off") {
     return streamGeminiVertex(model, context, clientPromise, {
       ...base,

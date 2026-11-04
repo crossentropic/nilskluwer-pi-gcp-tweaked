@@ -146,12 +146,18 @@ function testMessageConversionAndThinkingConfig() {
   assert.strictEqual(mapThinkingLevel("medium"), "MEDIUM");
   assert.strictEqual(mapThinkingLevel("high"), "HIGH");
 
-  // 4. buildParams thinking config
+  // 4. buildParams thinking config for Gemini 3+ vs 2.5
   const mockModelGemini3 = {
     id: "gemini-3.8-flash",
     provider: "google-vertex",
     reasoning: true,
   };
+  const mockModelGemini25 = {
+    id: "gemini-2.5-pro",
+    provider: "google-vertex",
+    reasoning: true,
+  };
+
   const paramsWithLevel = buildParams(mockModelGemini3, { messages: [] }, {
     thinking: { enabled: true, level: "LOW" },
   });
@@ -160,13 +166,31 @@ function testMessageConversionAndThinkingConfig() {
     thinkingLevel: "LOW",
   });
 
-  const paramsDisabled = buildParams(mockModelGemini3, { messages: [] }, {
+  // Gemini 3+ disabled thinking must NOT include thinkingBudget
+  const paramsDisabledGemini3 = buildParams(mockModelGemini3, { messages: [] }, {
     thinking: { enabled: false },
   });
-  assert.deepStrictEqual(paramsDisabled.config.thinkingConfig, {
+  assert.deepStrictEqual(paramsDisabledGemini3.config.thinkingConfig, {
+    includeThoughts: false,
+  });
+
+  // Gemini 2.5 disabled thinking uses thinkingBudget: 0
+  const paramsDisabledGemini25 = buildParams(mockModelGemini25, { messages: [] }, {
+    thinking: { enabled: false },
+  });
+  assert.deepStrictEqual(paramsDisabledGemini25.config.thinkingConfig, {
     includeThoughts: false,
     thinkingBudget: 0,
   });
+
+  // 5. Tool call and response IDs: omitted on Gemini 2.5, included on Gemini 3+
+  const convertedGemini25 = convertMessages(mockContext, mockModelGemini25);
+  assert.strictEqual(convertedGemini25[1].parts[1].functionCall.id, undefined, "Gemini 2.5 functionCall must not have id");
+  assert.strictEqual(convertedGemini25[2].parts[0].functionResponse.id, undefined, "Gemini 2.5 functionResponse must not have id");
+
+  const convertedGemini3 = convertMessages(mockContext, mockModelGemini3);
+  assert.strictEqual(convertedGemini3[1].parts[1].functionCall.id, "call_date_1", "Gemini 3+ functionCall must have id");
+  assert.strictEqual(convertedGemini3[2].parts[0].functionResponse.id, "call_date_1", "Gemini 3+ functionResponse must have id");
 
   console.log("gemini protocol & thinking fixes ok: tool IDs, turn merging, image support, and thinking configs verified");
 }
