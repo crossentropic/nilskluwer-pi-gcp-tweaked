@@ -110,11 +110,11 @@ function testMessageConversionAndThinkingConfig() {
   assert.strictEqual(toolResponseTurn.role, "user");
   assert.strictEqual(toolResponseTurn.parts.length, 2, "Consecutive tool responses must be merged into one turn");
   assert.strictEqual(toolResponseTurn.parts[0].functionResponse.id, "call_date_1");
-  assert.strictEqual(toolResponseTurn.parts[0].functionResponse.response.result, "2026-11-04");
+  assert.strictEqual(toolResponseTurn.parts[0].functionResponse.response.output, "2026-11-04");
   assert.strictEqual(toolResponseTurn.parts[1].functionResponse.id, "call_ls_2");
-  assert.strictEqual(toolResponseTurn.parts[1].functionResponse.response.result, "file1.txt\nfile2.txt");
+  assert.strictEqual(toolResponseTurn.parts[1].functionResponse.response.output, "file1.txt\nfile2.txt");
 
-  // 2. Multimodal input handling
+  // 2. Multimodal input handling (user messages & tool results)
   const multimodalContext = {
     messages: [
       {
@@ -134,6 +134,26 @@ function testMessageConversionAndThinkingConfig() {
     mimeType: "image/png",
     data: "base64data==",
   });
+
+  const toolWithImageContext = {
+    messages: [
+      {
+        role: "toolResult",
+        toolCallId: "call_snap_1",
+        toolName: "take_screenshot",
+        content: [
+          { type: "text", text: "Screenshot of dashboard" },
+          { type: "image", mimeType: "image/png", data: "dashboard_base64==" },
+        ],
+        isError: false,
+      },
+    ],
+  };
+  const convertedToolWithImage = convertMessages(toolWithImageContext);
+  assert.strictEqual(convertedToolWithImage[0].parts[0].functionResponse.response.output, "Screenshot of dashboard");
+  assert.deepStrictEqual(convertedToolWithImage[0].parts[0].functionResponse.parts, [
+    { inlineData: { mimeType: "image/png", data: "dashboard_base64==" } },
+  ]);
 
   // 3. Thinking level mapping for Gemini 3+ vs 2.5
   assert.strictEqual(isGemini3OrNewer("gemini-3.8-flash"), true);

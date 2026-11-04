@@ -253,14 +253,23 @@ export function convertMessages(context: TranscriptContext, model?: Model<Api>):
       if (parts.length > 0) contents.push({ role: "model", parts });
     } else if (msg.role === "toolResult") {
       const resultText = extractToolResultText(msg.content);
+      const imageParts = Array.isArray(msg.content)
+        ? msg.content
+            .filter((part): part is ImageContent => (part as any).type === "image" && Boolean((part as any).data))
+            .map((part) => ({
+              inlineData: {
+                mimeType: (part as any).mimeType,
+                data: (part as any).data,
+              },
+            }))
+        : [];
+
       const functionResponsePart: any = {
         functionResponse: {
           name: msg.toolName ?? "",
           ...(isGemini3 && msg.toolCallId ? { id: msg.toolCallId } : {}),
-          response: {
-            result: resultText,
-            ...(msg.isError ? { error: true } : {}),
-          },
+          response: msg.isError ? { error: resultText } : { output: resultText },
+          ...(imageParts.length > 0 ? { parts: imageParts } : {}),
         },
       };
 
@@ -717,7 +726,7 @@ export function registerGoogleVertexProvider(
   pi: ExtensionAPI,
   project: string | undefined,
   location: string,
-  baseUrl: string,
+  _baseUrl: string,
   geminiCacheTtlSeconds: number = DEFAULT_GEMINI_CACHE_TTL_SECONDS,
   resolveCredentialsFile?: () => string,
 ): void {
