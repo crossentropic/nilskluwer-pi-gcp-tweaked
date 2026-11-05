@@ -176,13 +176,28 @@ function mapStopReason(reason?: string): StopReason {
   }
 }
 
-function convertTools(tools: Tool[]): any[] {
+export function rewriteConstAsEnum(schema: any): any {
+  if (Array.isArray(schema)) return schema.map(rewriteConstAsEnum);
+  if (typeof schema !== "object" || schema === null) return schema;
+
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    result[key] = rewriteConstAsEnum(value);
+  }
+  if ("const" in result && result.enum === undefined) {
+    result.enum = [result.const];
+    delete result.const;
+  }
+  return result;
+}
+
+export function convertTools(tools: Tool[]): any[] {
   return [
     {
       functionDeclarations: tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        parameters: tool.parameters,
+        parametersJsonSchema: rewriteConstAsEnum(tool.parameters),
       })),
     },
   ];
@@ -228,10 +243,12 @@ export function convertMessages(context: TranscriptContext, model?: Model<Api>):
     } else if (msg.role === "assistant") {
       const parts: any[] = [];
       for (const block of msg.content) {
-        if (block.type === "text" && block.text) {
+        if (block.type === "text") {
+          const signature = block.textSignature;
+          if ((!block.text || block.text.trim() === "") && !signature) continue;
           parts.push({
-            text: block.text,
-            ...(block.textSignature ? { thoughtSignature: block.textSignature } : {}),
+            text: block.text ?? "",
+            ...(signature ? { thoughtSignature: signature } : {}),
           });
         } else if (block.type === "thinking" && block.thinking) {
           parts.push({
@@ -354,8 +371,9 @@ export function buildParams(
   if (options.temperature !== undefined) {
     generationConfig.temperature = options.temperature;
   }
-  if (options.maxTokens !== undefined) {
-    generationConfig.maxOutputTokens = options.maxTokens;
+  const maxTokens = options.maxTokens ?? model.maxTokens;
+  if (maxTokens !== undefined) {
+    generationConfig.maxOutputTokens = maxTokens;
   }
 
   const systemInstruction = initialSystemMessage
@@ -390,7 +408,14 @@ export function buildParams(
     config.thinkingConfig = thinkingConfig;
   } else if (model.reasoning && options.thinking && !options.thinking.enabled) {
     if (isGemini3OrNewer(model.id)) {
-      config.thinkingConfig = { includeThoughts: false };
+      const fallback = clampThinkingLevel(model, "off");
+      if (fallback === "off") {
+        config.thinkingConfig = { includeThoughts: false };
+      } else {
+        // For models like Argon where thinking cannot be completely off:
+        // Set thinkingLevel: "LOW" internally, but OMIT includeThoughts: true so thoughts are not streamed.
+        config.thinkingConfig = { thinkingLevel: "LOW" as any };
+      }
     } else {
       config.thinkingConfig = { includeThoughts: false, thinkingBudget: 0 };
     }
@@ -682,18 +707,18 @@ export function streamSimpleGeminiVertex(
 ): AssistantMessageEventStream {
   const base: GoogleVertexOptions = {
     ...options,
+    maxTokens: options?.maxTokens ?? model.maxTokens,
     toolChoice: options?.toolChoice,
   };
 
-  const requestedReasoning = options?.reasoning ?? (model.reasoning ? "off" : undefined);
-  if (!requestedReasoning) {
+  if (!options?.reasoning) {
     return streamGeminiVertex(model, context, clientPromise, {
       ...base,
       thinking: { enabled: false },
     });
   }
 
-  const clampedReasoning = clampThinkingLevel(model, requestedReasoning);
+  const clampedReasoning = clampThinkingLevel(model, options.reasoning);
   if (clampedReasoning === "off") {
     return streamGeminiVertex(model, context, clientPromise, {
       ...base,

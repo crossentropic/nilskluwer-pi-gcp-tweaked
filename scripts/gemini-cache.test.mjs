@@ -9,6 +9,8 @@ import {
   isGemini3OrNewer,
   mapThinkingLevel,
   buildParams,
+  convertTools,
+  rewriteConstAsEnum,
 } from "../extensions/gcp-agent-platform/gemini.ts";
 
 async function testClientMemoization() {
@@ -211,6 +213,105 @@ function testMessageConversionAndThinkingConfig() {
   const convertedGemini3 = convertMessages(mockContext, mockModelGemini3);
   assert.strictEqual(convertedGemini3[1].parts[1].functionCall.id, "call_date_1", "Gemini 3+ functionCall must have id");
   assert.strictEqual(convertedGemini3[2].parts[0].functionResponse.id, "call_date_1", "Gemini 3+ functionResponse must have id");
+
+  // 6. Gemini 4 Argon: maxOutputTokens fallback & silent LOW thinking when disabled
+  const mockModelGemini4 = {
+    id: "gemini-4-argon",
+    provider: "google-vertex",
+    reasoning: true,
+    maxTokens: 65536,
+    thinkingLevelMap: {
+      off: null,
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+      max: null,
+    },
+  };
+
+  const paramsArgonDefault = buildParams(mockModelGemini4, { messages: [] }, {});
+  assert.strictEqual(
+    paramsArgonDefault.config.maxOutputTokens,
+    65536,
+    "maxOutputTokens must fall back to model.maxTokens when options.maxTokens is omitted",
+  );
+
+  const paramsArgonDisabledThinking = buildParams(mockModelGemini4, { messages: [] }, {
+    thinking: { enabled: false },
+  });
+  assert.deepStrictEqual(
+    paramsArgonDisabledThinking.config.thinkingConfig,
+    { thinkingLevel: "LOW" },
+    "Argon disabled thinking must run silently at LOW without includeThoughts: true",
+  );
+
+  // 7. Preservation of empty text parts carrying thoughtSignature
+  const contextWithEmptyTextSignature = {
+    messages: [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "",
+            textSignature: "sig_empty_text_123",
+          },
+          {
+            type: "text",
+            text: "", // no signature, should be discarded
+          },
+          {
+            type: "toolCall",
+            id: "call_read_1",
+            name: "read",
+            arguments: { path: "file.txt" },
+          },
+        ],
+      },
+    ],
+  };
+  const convertedEmptyText = convertMessages(contextWithEmptyTextSignature, mockModelGemini4);
+  assert.strictEqual(convertedEmptyText.length, 1);
+  assert.strictEqual(
+    convertedEmptyText[0].parts.length,
+    2,
+    "Empty text block with signature must be preserved; empty text block without signature must be discarded",
+  );
+  assert.strictEqual(convertedEmptyText[0].parts[0].text, "");
+  assert.strictEqual(convertedEmptyText[0].parts[0].thoughtSignature, "sig_empty_text_123");
+  assert.strictEqual(convertedEmptyText[0].parts[1].functionCall.id, "call_read_1");
+
+  // 8. Tool schema: parametersJsonSchema and rewriteConstAsEnum
+  const sampleTools = [
+    {
+      name: "custom_tool",
+      description: "Tool description",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", const: "install" },
+          format: { type: "string", enum: ["pdf", "html"] },
+        },
+      },
+    },
+  ];
+  const convertedToolDecls = convertTools(sampleTools);
+  assert.strictEqual(convertedToolDecls.length, 1);
+  const fnDecl = convertedToolDecls[0].functionDeclarations[0];
+  assert.ok(fnDecl.parametersJsonSchema, "Must use parametersJsonSchema instead of parameters");
+  assert.strictEqual(fnDecl.parameters, undefined, "Legacy parameters property must not be present");
+  assert.deepStrictEqual(
+    fnDecl.parametersJsonSchema.properties.action.enum,
+    ["install"],
+    "const keyword must be rewritten to single-item enum array",
+  );
+  assert.strictEqual(
+    fnDecl.parametersJsonSchema.properties.action.const,
+    undefined,
+    "const keyword must be removed from schema property",
+  );
 
   console.log("gemini protocol & thinking fixes ok: tool IDs, turn merging, image support, and thinking configs verified");
 }
