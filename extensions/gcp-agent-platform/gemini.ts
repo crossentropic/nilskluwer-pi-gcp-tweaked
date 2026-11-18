@@ -6,6 +6,8 @@
  * with memoized client pooling so OAuth tokens are cached in memory across agent turns.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type {
   GenerateContentConfig,
   GenerateContentParameters,
@@ -38,6 +40,7 @@ import {
   type TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
 import {
+  getAgentDir,
   type ExtensionAPI,
   type ProviderModelConfig,
 } from "@earendil-works/pi-coding-agent";
@@ -46,6 +49,8 @@ export const GEMINI_CACHE_MODELS = new Set([
   "gemini-3.5-flash-lite",
   "gemini-3.8-flash",
   "gemini-4-argon",
+  "gemini-4-carbon",
+  "gemini-4-hydrogen",
 ]);
 
 export const DEFAULT_GEMINI_CACHE_TTL_SECONDS = 300;
@@ -68,6 +73,38 @@ type GeminiVertexModel = Omit<Model<Api>, "provider" | "baseUrl"> & {
   promptCache?: { short?: number; long?: number };
 };
 
+export function getAllVertexModels(): Model<Api>[] {
+  const modelsMap = new Map<string, Model<Api>>();
+
+  // Seed with static built-in models
+  try {
+    for (const model of getModels("google-vertex")) {
+      modelsMap.set(model.id, model);
+    }
+  } catch {}
+
+  // Merge dynamic models from Pi's models-store.json cache if present
+  try {
+    const storePath = join(getAgentDir(), "models-store.json");
+    if (existsSync(storePath)) {
+      const parsed = JSON.parse(readFileSync(storePath, "utf-8"));
+      const entry = parsed["google-vertex"];
+      const storeModels: Model<Api>[] = Array.isArray(entry)
+        ? entry
+        : Array.isArray(entry?.models)
+          ? entry.models
+          : [];
+      for (const model of storeModels) {
+        if (model && typeof model.id === "string") {
+          modelsMap.set(model.id, model);
+        }
+      }
+    }
+  } catch {}
+
+  return Array.from(modelsMap.values());
+}
+
 export function getGoogleVertexModels(
   geminiCacheTtlSeconds: number = DEFAULT_GEMINI_CACHE_TTL_SECONDS,
 ): GeminiVertexModel[] {
@@ -75,7 +112,7 @@ export function getGoogleVertexModels(
     Number.isFinite(geminiCacheTtlSeconds) && geminiCacheTtlSeconds > 0
       ? Math.floor(geminiCacheTtlSeconds)
       : 0;
-  return getModels("google-vertex").map(
+  return getAllVertexModels().map(
     ({ provider: _provider, baseUrl: _baseUrl, ...model }) => ({
       ...model,
       promptCache:

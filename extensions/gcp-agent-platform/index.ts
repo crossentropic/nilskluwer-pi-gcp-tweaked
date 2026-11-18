@@ -48,6 +48,7 @@ import {
   clearGoogleVertexClientCache,
   DEFAULT_GEMINI_CACHE_TTL_SECONDS,
   GEMINI_CACHE_MODELS,
+  getAllVertexModels,
   getGoogleVertexModels,
   registerGoogleVertexProvider,
 } from "./gemini.ts";
@@ -57,6 +58,7 @@ export type { AnthropicCacheTtl } from "./anthropic.ts";
 export {
   clearGoogleVertexClientCache,
   GEMINI_CACHE_MODELS,
+  getAllVertexModels,
   getGoogleVertexModels,
   registerGoogleVertexProvider,
 } from "./gemini.ts";
@@ -744,7 +746,7 @@ async function promptGeminiTtl(
   current: number,
 ): Promise<number | undefined> {
   const choice = await ctx.ui.select(
-    "Gemini (3.5-flash-lite / 3.8-flash / 4-argon) cache TTL",
+    "Gemini (3.5-flash-lite / 3.8-flash / 4-argon / 4-carbon / 4-hydrogen) cache TTL",
     [
       "300s (5m default implicit cache warming)",
       "600s (10m)",
@@ -956,7 +958,7 @@ function registerCacheCommand(pi: ExtensionAPI): void {
           ? `${currentConfig.geminiCacheTtlSeconds}s`
           : "off";
       ctx.ui.notify(
-        `Vertex cache TTLs — Anthropic (claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5): ${currentConfig.anthropicCacheTtl} | Gemini (gemini-3.5-flash-lite, gemini-3.8-flash, gemini-4-argon): ${geminiLabel}`,
+        `Vertex cache TTLs — Anthropic (claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5): ${currentConfig.anthropicCacheTtl} | Gemini (gemini-3.5-flash-lite, gemini-3.8-flash, gemini-4-argon, gemini-4-carbon, gemini-4-hydrogen): ${geminiLabel}`,
         "info",
       );
       return;
@@ -1006,7 +1008,7 @@ function registerCacheCommand(pi: ExtensionAPI): void {
     if (!subcommand && ctx.hasUI) {
       const target = await ctx.ui.select("Configure Vertex AI cache TTL", [
         `Anthropic 5.5 (Haiku/Sonnet/Opus) — current: ${currentConfig.anthropicCacheTtl}`,
-        `Gemini (3.5-flash-lite / 3.8-flash / 4-argon) — current: ${currentConfig.geminiCacheTtlSeconds > 0 ? `${currentConfig.geminiCacheTtlSeconds}s` : "off"}`,
+        `Gemini (3.5-flash-lite / 3.8-flash / 4-argon / 4-carbon / 4-hydrogen) — current: ${currentConfig.geminiCacheTtlSeconds > 0 ? `${currentConfig.geminiCacheTtlSeconds}s` : "off"}`,
       ]);
       if (!target) return;
 
@@ -1053,7 +1055,7 @@ function registerCacheCommand(pi: ExtensionAPI): void {
 
   pi.registerCommand("vertex-cache", {
     description:
-      "View or configure Vertex AI prompt cache TTL for Anthropic 5.5 (5m/1h/off) and Gemini (3.5-flash-lite/3.8-flash/4-argon)",
+      "View or configure Vertex AI prompt cache TTL for Anthropic 5.5 (5m/1h/off) and Gemini (3.5-flash-lite/3.8-flash/4-argon/carbon/hydrogen)",
     handler,
   });
 }

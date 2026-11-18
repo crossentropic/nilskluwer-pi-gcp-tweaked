@@ -8,7 +8,16 @@ import { join } from "node:path";
 const tmp = mkdtempSync(join(tmpdir(), "vertex-setup-test-"));
 try {
   process.env.PI_CODING_AGENT_DIR = tmp;
-  for (const name of ["GOOGLE_CLOUD_PROJECT", "ANTHROPIC_VERTEX_PROJECT_ID", "GCLOUD_PROJECT", "GOOGLE_APPLICATION_CREDENTIALS", "VERTEX_IMPERSONATE_SERVICE_ACCOUNT"]) {
+  for (const name of [
+    "GOOGLE_CLOUD_PROJECT",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+    "GCLOUD_PROJECT",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "VERTEX_IMPERSONATE_SERVICE_ACCOUNT",
+    "GOOGLE_CLOUD_LOCATION",
+    "VERTEX_REGION",
+    "CLOUD_ML_REGION",
+  ]) {
     delete process.env[name];
   }
   const configPath = join(tmp, "gcp-agent-platform.json");

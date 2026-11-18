@@ -4,6 +4,7 @@ import {
   getOrCreateGeminiVertexClient,
   getGoogleVertexModels,
   DEFAULT_GEMINI_CACHE_TTL_SECONDS,
+  GEMINI_CACHE_MODELS,
   convertMessages,
   extractToolResultText,
   isGemini3OrNewer,
@@ -45,6 +46,19 @@ async function testClientMemoization() {
   // 5. Model catalog returns models with prompt cache configured
   const models = getGoogleVertexModels(DEFAULT_GEMINI_CACHE_TTL_SECONDS);
   assert.ok(Array.isArray(models) && models.length > 0, "Models must be returned");
+
+  // Verify Carbon and Hydrogen are supported and have prompt cache configured
+  assert.ok(GEMINI_CACHE_MODELS.has("gemini-4-carbon"), "GEMINI_CACHE_MODELS must include gemini-4-carbon");
+  assert.ok(GEMINI_CACHE_MODELS.has("gemini-4-hydrogen"), "GEMINI_CACHE_MODELS must include gemini-4-hydrogen");
+
+  const carbon = models.find((m) => m.id === "gemini-4-carbon");
+  const hydrogen = models.find((m) => m.id === "gemini-4-hydrogen");
+  if (carbon) {
+    assert.deepStrictEqual(carbon.promptCache, { short: 300, long: 300 }, "gemini-4-carbon must have prompt cache configured");
+  }
+  if (hydrogen) {
+    assert.deepStrictEqual(hydrogen.promptCache, { short: 300, long: 300 }, "gemini-4-hydrogen must have prompt cache configured");
+  }
 
   console.log("gemini client memoization ok: instance reuse, profile isolation, header safety, and cache clearing verified");
 }
