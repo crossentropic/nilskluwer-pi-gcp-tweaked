@@ -83,7 +83,18 @@ Examples:
 
 Run `/setup-gemini-vertexai` without arguments to open the interactive wizard. It asks for the authentication method first, then the project ID and location, followed by credential details and prompt-caching TTLs. Press Enter at the project or location prompt to keep the current value. Press Escape at these initial prompts to cancel without saving.
 
-The wizard saves the configuration to:
+### Quick Region & Project Commands
+
+To change only the region or project without running the full setup wizard:
+
+- **/vertex-region** (aliases: `/vertex-location`, `/gcp-region`):
+  - Run without arguments (`/vertex-region`) to open a dropdown menu listing available Vertex AI locations (`global`, `eu`, `us`, `us-central1`, `us-east4`, etc., with an option for manual entry).
+  - Or pass the region directly: `/vertex-region us-central1` or `/vertex-region global`. Supports `<Tab>` auto-completion.
+- **/vertex-project** (alias: `/gcp-project`):
+  - Run without arguments (`/vertex-project`) to pick from recently used projects in a dropdown or input a new project ID.
+  - Or pass the project ID directly: `/vertex-project my-project-id`.
+
+The configuration is saved to:
 
 ```text
 ~/.pi/agent/gcp-agent-platform.json

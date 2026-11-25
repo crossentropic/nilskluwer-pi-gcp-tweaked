@@ -79,6 +79,99 @@ try {
     await run("", 1, title);
     assert.equal(readFileSync(configPath, "utf8"), beforeCancel, `Cancel at ${title} must not save changes`);
   }
+
+  // --- Test /vertex-region ---
+  const regionCmd = commands.get("vertex-region");
+  assert.ok(regionCmd, "vertex-region command must be registered");
+  assert.ok(commands.get("vertex-location"), "vertex-location alias must be registered");
+  assert.ok(commands.get("gcp-region"), "gcp-region alias must be registered");
+
+  // Autocompletions test
+  const completions = regionCmd.getArgumentCompletions("us-");
+  assert.ok(completions && completions.length > 0, "Should autocomplete us- regions");
+  assert.ok(completions.some((c) => c.value === "us-central1"));
+
+  // CLI arg invocation
+  await regionCmd.handler("us-central1", {
+    hasUI: true,
+    ui: { notify() {}, setStatus() {} },
+  });
+  saved = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(saved.location, "us-central1", "Direct CLI argument must set region");
+
+  // Dropdown UI selection
+  let selectPrompt = "";
+  await regionCmd.handler("", {
+    hasUI: true,
+    ui: {
+      select: async (title, choices) => {
+        selectPrompt = title;
+        // pick global
+        return choices.find((c) => c.startsWith("global"));
+      },
+      notify() {},
+      setStatus() {},
+    },
+  });
+  assert.ok(selectPrompt.includes("Select Vertex AI region/location"), "Must prompt with region dropdown");
+  saved = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(saved.location, "global", "Dropdown selection must set location to global");
+
+  // Custom UI input
+  await regionCmd.handler("", {
+    hasUI: true,
+    ui: {
+      select: async (_title, choices) => choices.find((c) => c.startsWith("Custom")),
+      input: async () => "australia-southeast1",
+      notify() {},
+      setStatus() {},
+    },
+  });
+  saved = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(saved.location, "australia-southeast1", "Custom input must set location");
+
+  // Escape cancels region
+  const savedBeforeEscape = saved.location;
+  await regionCmd.handler("", {
+    hasUI: true,
+    ui: {
+      select: async () => undefined,
+      notify() {},
+      setStatus() {},
+    },
+  });
+  saved = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(saved.location, savedBeforeEscape, "Escape in region dropdown must not change location");
+
+  // --- Test /vertex-project ---
+  const projectCmd = commands.get("vertex-project");
+  assert.ok(projectCmd, "vertex-project command must be registered");
+  assert.ok(commands.get("gcp-project"), "gcp-project alias must be registered");
+
+  // CLI arg invocation
+  await projectCmd.handler("new-cli-project", {
+    hasUI: true,
+    ui: { notify() {}, setStatus() {} },
+  });
+  saved = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(saved.project, "new-cli-project", "Direct CLI argument must set project");
+  assert.ok(saved.recentProjects.includes("new-cli-project"), "Project must be added to recentProjects");
+
+  // UI dropdown selection of a previous project
+  await projectCmd.handler("", {
+    hasUI: true,
+    ui: {
+      select: async (title, choices) => {
+        return choices.find((c) => c.includes("existing-project"));
+      },
+      input: async () => "",
+      notify() {},
+      setStatus() {},
+    },
+  });
+  saved = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(saved.project, "existing-project", "Selecting existing project from dropdown must switch project");
+
   console.log("setup regression ok: auth → project → location for all modes; Enter keeps defaults; explicit project replaces default; Escape cancels");
 } finally {
   rmSync(tmp, { recursive: true, force: true });

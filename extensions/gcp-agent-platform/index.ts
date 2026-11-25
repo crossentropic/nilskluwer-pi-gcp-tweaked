@@ -66,6 +66,7 @@ export type AuthMode = "adc" | "service-account" | "impersonation";
 
 export type VertexSetupConfig = {
   project?: string;
+  recentProjects?: string[];
   location?: string;
   authMode?: AuthMode;
   serviceAccountKeyPath?: string;
@@ -130,6 +131,8 @@ applyEnvironment(currentConfig);
 
 export default function (pi: ExtensionAPI) {
   registerSetupCommand(pi);
+  registerProjectCommand(pi);
+  registerRegionCommand(pi);
   registerCacheCommand(pi);
   registerAllVertexProviders(pi, currentConfig);
 
@@ -269,6 +272,17 @@ function updateSavedConfig(patch: Partial<VertexSetupConfig>): ResolvedVertexCon
     ...savedConfig,
     ...patch,
   };
+  if (nextSaved.project) {
+    const existing = Array.isArray(savedConfig.recentProjects)
+      ? savedConfig.recentProjects
+      : savedConfig.project
+        ? [savedConfig.project]
+        : [];
+    const filtered = existing.filter(
+      (p) => typeof p === "string" && p !== nextSaved.project,
+    );
+    nextSaved.recentProjects = [nextSaved.project, ...filtered].slice(0, 8);
+  }
   if (nextSaved.authMode === "adc") {
     delete nextSaved.serviceAccountKeyPath;
     delete nextSaved.impersonateServiceAccount;
@@ -597,6 +611,9 @@ function readJsonConfig(path: string): VertexSetupConfig {
 function writeSetupConfig(config: VertexSetupConfig): void {
   const payload: VertexSetupConfig = {
     project: config.project,
+    ...(Array.isArray(config.recentProjects) && config.recentProjects.length > 0
+      ? { recentProjects: config.recentProjects }
+      : {}),
     location: config.location,
     authMode: config.authMode,
     ...(config.serviceAccountKeyPath
@@ -1057,5 +1074,169 @@ function registerCacheCommand(pi: ExtensionAPI): void {
     description:
       "View or configure Vertex AI prompt cache TTL for Anthropic 5.5 (5m/1h/off) and Gemini (3.5-flash-lite/3.8-flash/4-argon/carbon/hydrogen)",
     handler,
+  });
+}
+
+const VERTEX_REGIONS: { id: string; label: string }[] = [
+  { id: "global", label: "global — Global endpoint (aiplatform.googleapis.com)" },
+  { id: "eu", label: "eu — EU multi-region (aiplatform.eu.rep.googleapis.com)" },
+  { id: "us", label: "us — US multi-region (aiplatform.us.rep.googleapis.com)" },
+  { id: "us-central1", label: "us-central1 — Iowa (Gemini)" },
+  { id: "us-east4", label: "us-east4 — N. Virginia (Gemini & Claude)" },
+  { id: "us-west1", label: "us-west1 — Oregon (Gemini & Claude)" },
+  { id: "us-west4", label: "us-west4 — Las Vegas (Gemini)" },
+  { id: "europe-west1", label: "europe-west1 — Belgium (Gemini & Claude)" },
+  { id: "europe-west4", label: "europe-west4 — Netherlands (Gemini)" },
+  { id: "europe-west9", label: "europe-west9 — Paris (Gemini)" },
+  { id: "asia-northeast1", label: "asia-northeast1 — Tokyo (Gemini & Claude)" },
+  { id: "asia-southeast1", label: "asia-southeast1 — Singapore (Gemini)" },
+];
+
+function registerRegionCommand(pi: ExtensionAPI): void {
+  const handler = async (args: string, ctx: ExtensionCommandContext) => {
+    let region = args.trim();
+    if (!region && ctx.hasUI) {
+      const choices = VERTEX_REGIONS.map((opt) =>
+        opt.id === currentConfig.location ? `${opt.label} (current)` : opt.label,
+      );
+      choices.push("Custom region (enter manually)...");
+
+      const selection = await ctx.ui.select(
+        `Select Vertex AI region/location (current: ${currentConfig.location})`,
+        choices,
+      );
+      if (selection === undefined) return;
+
+      if (selection.startsWith("Custom")) {
+        const input = await ctx.ui.input(
+          "Vertex AI location (e.g. us-central1, europe-west1, global)",
+          currentConfig.location,
+        );
+        if (input === undefined) return;
+        region = input.trim();
+      } else {
+        const matched = VERTEX_REGIONS.find((opt) =>
+          selection.startsWith(opt.label),
+        );
+        if (matched) {
+          region = matched.id;
+        } else {
+          region = selection.split(/\s+/)[0];
+        }
+      }
+    }
+
+    if (!region) {
+      ctx.ui.notify(
+        `Current Vertex AI region is '${currentConfig.location}'. Usage: /vertex-region <location>`,
+        "info",
+      );
+      return;
+    }
+
+    const updated = updateSavedConfig({ location: region });
+    registerAllVertexProviders(pi, updated);
+    updateStatus(ctx, updated);
+    ctx.ui.notify(
+      `Vertex AI location set to '${updated.location}' (${getVertexBaseUrl(updated.location)}).`,
+      "info",
+    );
+  };
+
+  const command = {
+    description: "View or change Google Cloud Vertex AI region/location",
+    getArgumentCompletions: (prefix: string) => {
+      const items = VERTEX_REGIONS.map((opt) => ({
+        value: opt.id,
+        label: opt.label,
+      }));
+      const filtered = items.filter((i) =>
+        i.value.toLowerCase().startsWith(prefix.toLowerCase()),
+      );
+      return filtered.length > 0 ? filtered : null;
+    },
+    handler,
+  };
+
+  pi.registerCommand("vertex-region", command);
+  pi.registerCommand("vertex-location", {
+    ...command,
+    description: "Alias for /vertex-region",
+  });
+  pi.registerCommand("gcp-region", {
+    ...command,
+    description: "Alias for /vertex-region",
+  });
+}
+
+function registerProjectCommand(pi: ExtensionAPI): void {
+  const handler = async (args: string, ctx: ExtensionCommandContext) => {
+    let project = args.trim();
+    if (!project && ctx.hasUI) {
+      const recent = (savedConfig.recentProjects || []).filter(Boolean);
+      if (currentConfig.project && !recent.includes(currentConfig.project)) {
+        recent.unshift(currentConfig.project);
+      }
+
+      if (recent.length > 0) {
+        const choices = recent.map((p) =>
+          p === currentConfig.project ? `${p} (current)` : p,
+        );
+        choices.push("Enter new project ID...");
+
+        const selection = await ctx.ui.select(
+          `Select Google Cloud project (current: ${currentConfig.project || "none"})`,
+          choices,
+        );
+        if (selection === undefined) return;
+
+        if (selection.startsWith("Enter new")) {
+          const input = await ctx.ui.input(
+            "Google Cloud project ID",
+            currentConfig.project || "",
+          );
+          if (input === undefined) return;
+          project = input.trim();
+        } else {
+          project = selection.replace(/\s+\(current\)$/, "").trim();
+        }
+      } else {
+        const input = await ctx.ui.input(
+          "Google Cloud project ID",
+          currentConfig.project || "",
+        );
+        if (input === undefined) return;
+        project = input.trim();
+      }
+    }
+
+    if (!project) {
+      ctx.ui.notify(
+        currentConfig.project
+          ? `Current Vertex AI project is '${currentConfig.project}'. Usage: /vertex-project <project-id>`
+          : "No Vertex AI project configured. Usage: /vertex-project <project-id>",
+        "info",
+      );
+      return;
+    }
+
+    const updated = updateSavedConfig({ project });
+    registerAllVertexProviders(pi, updated);
+    updateStatus(ctx, updated);
+    const credCheck = checkCredentials(updated);
+    ctx.ui.notify(
+      `Vertex AI project set to '${updated.project}'. ${credCheck.message}`,
+      credCheck.ok ? "info" : "warning",
+    );
+  };
+
+  const command = {
+    description: "View or change Google Cloud project ID",
+    handler,
+  };
+  pi.registerCommand("vertex-project", command);
+  pi.registerCommand("gcp-project", {
+    ...command,
+    description: "Alias for /vertex-project",
   });
 }
