@@ -83,7 +83,8 @@ try {
   // --- Test /vertex-region ---
   const regionCmd = commands.get("vertex-region");
   assert.ok(regionCmd, "vertex-region command must be registered");
-  assert.ok(commands.get("vertex-location"), "vertex-location alias must be registered");
+  assert.ok(commands.get("reg"), "reg alias must be registered");
+  assert.ok(!commands.has("vertex-location"), "vertex-location should be replaced by reg");
   assert.ok(commands.get("gcp-region"), "gcp-region alias must be registered");
 
   // Autocompletions test
@@ -146,6 +147,7 @@ try {
   // --- Test /vertex-project ---
   const projectCmd = commands.get("vertex-project");
   assert.ok(projectCmd, "vertex-project command must be registered");
+  assert.ok(commands.get("proj"), "proj alias must be registered");
   assert.ok(commands.get("gcp-project"), "gcp-project alias must be registered");
 
   // CLI arg invocation

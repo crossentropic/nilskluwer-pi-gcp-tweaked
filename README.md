@@ -87,12 +87,12 @@ Run `/setup-gemini-vertexai` without arguments to open the interactive wizard. I
 
 To change only the region or project without running the full setup wizard:
 
-- **/vertex-region** (aliases: `/vertex-location`, `/gcp-region`):
-  - Run without arguments (`/vertex-region`) to open a dropdown menu listing available Vertex AI locations (`global`, `eu`, `us`, `us-central1`, `us-east4`, etc., with an option for manual entry).
-  - Or pass the region directly: `/vertex-region us-central1` or `/vertex-region global`. Supports `<Tab>` auto-completion.
-- **/vertex-project** (alias: `/gcp-project`):
-  - Run without arguments (`/vertex-project`) to pick from recently used projects in a dropdown or input a new project ID.
-  - Or pass the project ID directly: `/vertex-project my-project-id`.
+- **/vertex-region** (aliases: `/reg`, `/gcp-region`):
+  - Run without arguments (`/reg` or `/vertex-region`) to open a dropdown menu listing available Vertex AI locations (`global`, `eu`, `us`, `us-central1`, `us-east4`, etc., with an option for manual entry).
+  - Or pass the region directly: `/reg us-central1` or `/reg global`. Supports `<Tab>` auto-completion.
+- **/vertex-project** (aliases: `/proj`, `/gcp-project`):
+  - Run without arguments (`/proj` or `/vertex-project`) to pick from recently used projects in a dropdown or input a new project ID.
+  - Or pass the project ID directly: `/proj my-project-id`.
 
 The configuration is saved to:
 

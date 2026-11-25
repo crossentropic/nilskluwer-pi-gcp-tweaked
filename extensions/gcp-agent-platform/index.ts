@@ -1159,7 +1159,7 @@ function registerRegionCommand(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("vertex-region", command);
-  pi.registerCommand("vertex-location", {
+  pi.registerCommand("reg", {
     ...command,
     description: "Alias for /vertex-region",
   });
@@ -1235,6 +1235,10 @@ function registerProjectCommand(pi: ExtensionAPI): void {
     handler,
   };
   pi.registerCommand("vertex-project", command);
+  pi.registerCommand("proj", {
+    ...command,
+    description: "Alias for /vertex-project",
+  });
   pi.registerCommand("gcp-project", {
     ...command,
     description: "Alias for /vertex-project",
