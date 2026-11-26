@@ -1,4 +1,6 @@
-# @nilskluewer/pi-gcp-agent-platform
+# nilskluwer-pi-gcp-tweaked
+
+A tweaked fork of [@nilskluewer/pi-gcp-agent-platform](https://github.com/nilskluewer/pi-gcp-agent-platform).
 
 ![Vertex AI setup with ADC, Service Account JSON key, and Service Account impersonation](./assets/authentication-setup.png)
 
@@ -28,7 +30,7 @@ All providers share the same Google Cloud project, location, credentials, and pr
 ## Getting Started
 
 ```bash
-pi install npm:@nilskluewer/pi-gcp-agent-platform
+pi install github:crossentropic/nilskluwer-pi-gcp-tweaked
 pi
 /setup-gemini-vertexai
 /model google-vertex/gemini-3.5-flash-lite
@@ -223,7 +225,7 @@ Vertex AI does not support Anthropic's server-side `fallbacks` request parameter
 ## Run Without Installing
 
 ```bash
-pi -e npm:@nilskluewer/pi-gcp-agent-platform
+pi -e github:crossentropic/nilskluwer-pi-gcp-tweaked
 ```
 
 ## Migration from the Standalone Packages
@@ -232,7 +234,7 @@ Use this package as the single canonical Vertex package. The former standalone A
 
 ```bash
 pi remove /path/to/pi-anthropic-vertex-enterprise-agent-platform
-pi install npm:@nilskluewer/pi-gcp-agent-platform
+pi install github:crossentropic/nilskluwer-pi-gcp-tweaked
 ```
 
 `pi-vertex-gemini-search` is a separate optional web-search extension and is not part of this model package.

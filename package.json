@@ -1,5 +1,5 @@
 {
-  "name": "@nilskluewer/pi-gcp-agent-platform",
+  "name": "@crossentropic/nilskluwer-pi-gcp-tweaked",
   "version": "0.4.0",
   "description": "Use Claude and Gemini models on Google Cloud Vertex AI / Gemini Enterprise Agent Platform from pi.",
   "type": "module",
@@ -24,12 +24,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nilskluewer/pi-gcp-agent-platform.git"
+    "url": "git+https://github.com/crossentropic/nilskluwer-pi-gcp-tweaked.git"
   },
   "bugs": {
-    "url": "https://github.com/nilskluewer/pi-gcp-agent-platform/issues"
+    "url": "https://github.com/crossentropic/nilskluwer-pi-gcp-tweaked/issues"
   },
-  "homepage": "https://github.com/nilskluewer/pi-gcp-agent-platform#readme",
+  "homepage": "https://github.com/crossentropic/nilskluwer-pi-gcp-tweaked#readme",
   "files": [
     "extensions",
     "assets",
